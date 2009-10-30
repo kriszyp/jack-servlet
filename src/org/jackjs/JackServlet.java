@@ -1,57 +1,86 @@
 package org.jackjs;
+import java.io.File;
+import java.io.FileReader;
 import java.io.IOException;
-import javax.servlet.http.*;
-import javax.servlet.*;
 
-import java.io.*;
+import javax.servlet.ServletConfig;
+import javax.servlet.ServletContext;
+import javax.servlet.ServletException;
+import javax.servlet.http.HttpServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
 
-import org.mozilla.javascript.*;
+import org.mozilla.javascript.Context;
+import org.mozilla.javascript.Function;
+import org.mozilla.javascript.ImporterTopLevel;
+import org.mozilla.javascript.Scriptable;
+import org.mozilla.javascript.ScriptableObject;
+import org.mozilla.javascript.WrappedException;
 
 @SuppressWarnings("serial")
 public class JackServlet extends HttpServlet {
-	private Scriptable scope;
-	private Function app;
-	private Function handler;
+	Scriptable scope;
+	Scriptable servletHandler;
+	Function handler;
+	interface Config{
+		String getInitParameter(String name);
+		ServletContext getServletContext();
+	}
 	
-    public void init(ServletConfig config) throws ServletException {
+    public void init(final ServletConfig config) throws ServletException {
     	super.init(config);
-
-		final String modulesPath = getServletContext().getRealPath(getInitParam(config, "modulesPath", "WEB-INF"));
+    	initialize(new Config(){
+    		public String getInitParameter(String name){
+    			return config.getInitParameter(name);
+    		}
+    		public ServletContext getServletContext(){
+    			return JackServlet.this.getServletContext();
+    		}
+    	});
+    }
+    public void initialize(Config config) throws ServletException {
+    	String modulesPathDefault = System.getProperty("narwhal.modules.path");
+    	if(modulesPathDefault== null){
+    		modulesPathDefault = "";
+    	}
+		final String[] modulesPath = getInitParam(config, "modulesFilePath",modulesPathDefault).split(",");
+		final String configPath = config.getServletContext().getRealPath(getInitParam(config, "configPath", "WEB-INF"));
 		final String moduleName = getInitParam(config, "module", "jackconfig.js");
+		final boolean reload = "true".equals(getInitParam(config, "reload", "true"));
 		final String appName = getInitParam(config, "app", "app");
-		final String environmentName = getInitParam(config, "environment", null);
-    	
-		final String narwhalHome = getServletContext().getRealPath("WEB-INF/narwhal");
-		final String narwhalFilename = "platforms/rhino/bootstrap.js";
+		final String environmentName = getInitParam(config, "environment", "development");
+		String narwhalHomeDefault = System.getProperty("narwhal.home");
+		if(narwhalHomeDefault == null){
+			narwhalHomeDefault = config.getServletContext().getRealPath("WEB-INF/narwhal");
+		}
+		try {
+			narwhalHomeDefault = new File(narwhalHomeDefault).getCanonicalPath();
+		} catch (IOException e) {
+			// TODO Auto-generated catch block
+			e.printStackTrace();
+		}
+		final String narwhalHome = getInitParam(config, "narwhalFilePath", narwhalHomeDefault);
+		final String narwhalFilename = "engines/rhino/bootstrap.js";
 		
 		Context context = Context.enter();
 		try {
-			//context.setOptimizationLevel(-1);
+			context.setOptimizationLevel(5);
 			scope = new ImporterTopLevel(context);
 			
 			ScriptableObject.putProperty(scope, "NARWHAL_HOME",  Context.javaToJS(narwhalHome, scope));
-			//ScriptableObject.putProperty(scope, "$DEBUG",  Context.javaToJS(true, scope));
 			
 			// load Narwhal
 			context.evaluateReader(scope, new FileReader(narwhalHome+"/"+narwhalFilename), narwhalFilename, 1, null);
 			
 			// load Servlet handler "process" method
-			handler = (Function)context.evaluateString(scope, "require('jack/handler/servlet').Servlet.process;", null, 1, null);
+			servletHandler = (Scriptable)context.evaluateString(scope, "new (require('jack/handler/servlet').Servlet)({reload:" + reload + ", app:'" + appName + "', environment:'"+ environmentName + "', args:['"+configPath.replaceAll("\\\\", "/") +"/"+moduleName+"']})", null, 1, null);
 			
-			// load the app
-			Scriptable module = (Scriptable)context.evaluateString(scope, "require('"+modulesPath+"/"+moduleName+"');", null, 1, null);
+			handler = (Function) ScriptableObject.getProperty(servletHandler, "process");  
 
-			app = (Function)module.get(appName, module);
-
-			if (environmentName != null) {
-				Object environment = module.get(environmentName, module);
-				if (environment instanceof Function) {
-					Object args[] = {app};
-					app = (Function)((Function)environment).call(context, scope, module, args);
-				} else {
-					System.err.println("Warning: environment named \"" + environmentName + "\" not found or not a function.");
-				}
+			for (String modulePath : modulesPath){
+				context.evaluateString(scope, "require.paths.push('"+modulePath.replaceAll("\\\\", "/")+"');", null, 1, null);
 			}
+
 			
 		} catch (IOException e) {
 			e.printStackTrace();
@@ -59,18 +88,26 @@ public class JackServlet extends HttpServlet {
 			Context.exit();
 		}
     }
-    
+
 	public void service(HttpServletRequest request, HttpServletResponse response) throws IOException {
 		Context context = Context.enter();
 		try	{
-			Object args[] = {app, request, response};
-			handler.call(context, scope, null, args);
-		} finally {
+			Object args[] = {request, response};
+			handler.call(context, scope, servletHandler, args);
+		} 
+		catch(WrappedException e){
+			// this allows Jetty's RetryRequest exceptions to escape properly, and just 
+			// improves visibility of exceptions
+			if(e.getWrappedException() instanceof RuntimeException)
+				throw (RuntimeException) e.getWrappedException();
+			throw e;
+		}
+		finally {
 			Context.exit();
 		}
 	}
 	
-	private String getInitParam(ServletConfig config, String name, String defaultValue) {
+	private String getInitParam(Config config, String name, String defaultValue) {
         String value = config.getInitParameter(name);
         return value == null ? defaultValue : value;
     }

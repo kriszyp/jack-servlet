@@ -31,8 +31,12 @@ Notes
       <servlet-name>jack</servlet-name>
       <servlet-class>org.jackjs.JackServlet</servlet-class>
       <init-param>
-        <param-name>modulesPath</param-name>
+        <param-name>modulesFilePath</param-name>
         <param-value>WEB-INF</param-value>
+      </init-param>
+      <init-param>
+        <param-name>narwhalFilePath</param-name>
+        <param-value>/path/to/narwhal</param-value>
       </init-param>
       <init-param>
         <param-name>module</param-name>

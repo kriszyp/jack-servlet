@@ -1,14 +1,45 @@
 <?xml version="1.0"?>
 <web-app xmlns="http://java.sun.com/xml/ns/javaee" version="2.5">
-  
+  <!-- Jack can be run as a servlet --> 
   <servlet>
     <servlet-name>jack</servlet-name>
     <servlet-class>org.jackjs.JackServlet</servlet-class>
+
+    <!-- Various parameters that can be set
+    <init-param>
+      <param-name>reload</param-name>
+      <param-value>true</param-value>
+    </init-param>
+    <init-param>
+      <param-name>environment</param-name>
+      <param-value>development</param-value>
+    </init-param>
+    <init-param>
+      <param-name>narwhalFilePath</param-name>
+      <param-value>/path/to/narwhal</param-value>
+    </init-param>
+    <init-param>
+      <param-name>modulesFilePath</param-name>
+      <param-value>/path/to/additional/module/directories</param-value>
+    </init-param> -->
+
   </servlet>
   
   <servlet-mapping>
     <servlet-name>jack</servlet-name>
     <url-pattern>/*</url-pattern>
   </servlet-mapping>
+  
+  <!-- Jack can also be run as a filter
+  <filter>
+    <filter-name>jack</filter-name>
+    <filter-class>org.jackjs.JackFilter</filter-class>
+  </filter>
+  
+  <filter-mapping>
+    <filter-name>jack</filter-name>
+    <url-pattern>/*</url-pattern>
+  </filter-mapping>
+  -->
   
 </web-app>
